@@ -1,0 +1,17 @@
+# Build directories
+build/
+install/
+
+# Archives
+*.tar.gz
+*.zip
+
+# macOS
+.DS_Store
+
+# Editor
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
