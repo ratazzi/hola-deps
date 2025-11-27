@@ -49,6 +49,10 @@ curl-dev: install-dirs
 		echo ""; \
 		echo "Copying curl libraries and headers to install directory..."; \
 		cp -r "$(MISE_CURL_PATH)/lib"/* $(PREFIX)/lib/; \
+		if [ -d "$(MISE_CURL_PATH)/lib64" ]; then \
+			echo "Copying additional libraries from lib64/..."; \
+			cp -r "$(MISE_CURL_PATH)/lib64"/* $(PREFIX)/lib/; \
+		fi; \
 		cp -r "$(MISE_CURL_PATH)/include"/* $(PREFIX)/include/; \
 	else \
 		echo "✗ mise curl dev package not found!"; \
