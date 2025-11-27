@@ -32,8 +32,6 @@ jobs:
           brew install \
             cmake \
             pkg-config \
-            ruby \
-            rake \
             bison \
             autoconf \
             automake \
