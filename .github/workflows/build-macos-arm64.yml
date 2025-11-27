@@ -1,4 +1,4 @@
-name: Build Linux x86_64 Dependencies
+name: Build macOS ARM64 Dependencies
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: macos-14  # M1 runner
 
     steps:
       - name: Checkout
@@ -29,10 +29,7 @@ jobs:
 
       - name: Install build dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            clang \
+          brew install \
             cmake \
             pkg-config \
             ruby \
@@ -48,17 +45,14 @@ jobs:
           mise ls
 
       - name: Build all dependencies
-        env:
-          CC: clang
-          CXX: clang++
         run: |
           # Determine which Makefile to use based on branch
           if [ "${{ github.ref_name }}" = "curl" ] || [ -f "Makefile.curl" ]; then
             echo "Building with Makefile.curl (curl branch)"
-            make -f Makefile.curl -j$(nproc)
+            make -f Makefile.curl -j$(sysctl -n hw.ncpu)
           else
             echo "Building with default Makefile (master branch)"
-            make -j$(nproc)
+            make -j$(sysctl -n hw.ncpu)
           fi
 
       - name: Verify binaries
@@ -77,11 +71,11 @@ jobs:
             rm -f *.o
           done
           cat /tmp/arch-check.log
-          if ! grep -q "x86-64" /tmp/arch-check.log; then
-            echo "Error: Libraries are not x86-64!"
+          if ! grep -q "arm64" /tmp/arch-check.log; then
+            echo "Error: Libraries are not ARM64!"
             exit 1
           fi
-          echo "✅ All libraries verified as x86-64"
+          echo "✅ All libraries verified as ARM64"
 
       - name: Extract version from build.zig.zon
         id: version
@@ -97,35 +91,35 @@ jobs:
             # Rename based on branch/tag
             if [ "${{ github.ref_name }}" = "curl" ]; then
               # Nightly build from curl branch
-              mv hola-deps-*-linux-*.tar.gz hola-deps-linux-x86_64-curl.tar.gz
+              mv hola-deps-*-darwin-*.tar.gz hola-deps-macos-arm64-curl.tar.gz
             elif [ "${{ github.ref_type }}" = "tag" ]; then
               # Version release
-              mv hola-deps-*-linux-*.tar.gz hola-deps-linux-x86_64-${{ steps.version.outputs.version }}-curl.tar.gz
+              mv hola-deps-*-darwin-*.tar.gz hola-deps-macos-arm64-${{ steps.version.outputs.version }}-curl.tar.gz
             else
               # Other branches
-              mv hola-deps-*.tar.gz hola-deps-linux-x86_64.tar.gz
+              mv hola-deps-*.tar.gz hola-deps-macos-arm64.tar.gz
             fi
           else
             make package
             if [ "${{ github.ref_type }}" = "tag" ]; then
-              mv hola-deps-*.tar.gz hola-deps-linux-x86_64-${{ steps.version.outputs.version }}.tar.gz
+              mv hola-deps-*.tar.gz hola-deps-macos-arm64-${{ steps.version.outputs.version }}.tar.gz
             else
-              mv hola-deps-*.tar.gz hola-deps-linux-x86_64.tar.gz
+              mv hola-deps-*.tar.gz hola-deps-macos-arm64.tar.gz
             fi
           fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: hola-deps-linux-x86_64
-          path: hola-deps-linux-x86_64*.tar.gz
+          name: hola-deps-macos-arm64
+          path: hola-deps-macos-arm64*.tar.gz
           retention-days: 30
 
       - name: Create version release
         if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
-          files: hola-deps-linux-x86_64*.tar.gz
+          files: hola-deps-macos-arm64*.tar.gz
           draft: false
           prerelease: false
           name: Release ${{ steps.version.outputs.version }}
@@ -162,6 +156,6 @@ jobs:
 
             ⚠️ This is a nightly build and may be unstable.
           prerelease: true
-          files: hola-deps-linux-x86_64*.tar.gz
+          files: hola-deps-macos-arm64*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,183 @@
+PREFIX ?= $(PWD)/install
+BUILD_DIR ?= $(PWD)/build
+NPROC ?= $(shell nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)
+
+# Detect platform
+UNAME_M := $(shell uname -m)
+UNAME_S := $(shell uname -s | tr '[:upper:]' '[:lower:]')
+
+# stunnel-static-curl version
+CURL_VERSION := 8.17.0
+
+# Use mise-installed stunnel-static-curl dev package
+MISE_CURL_PATH := $(shell mise where github:stunnel/static-curl 2>/dev/null || echo "")
+
+# Platform-specific curl dev package
+ifeq ($(UNAME_S),darwin)
+    ifeq ($(UNAME_M),arm64)
+        CURL_DEV_PACKAGE := curl-macos-arm64-dev-$(CURL_VERSION).tar.xz
+        CURL_DEV_URL := https://github.com/stunnel/static-curl/releases/download/$(CURL_VERSION)/$(CURL_DEV_PACKAGE)
+    else
+        $(error Unsupported macOS architecture: $(UNAME_M))
+    endif
+else ifeq ($(UNAME_S),linux)
+    ifeq ($(UNAME_M),x86_64)
+        CURL_DEV_PACKAGE := curl-linux-x86_64-dev-$(CURL_VERSION).tar.xz
+        CURL_DEV_URL := https://github.com/stunnel/static-curl/releases/download/$(CURL_VERSION)/$(CURL_DEV_PACKAGE)
+    else
+        $(error Unsupported Linux architecture: $(UNAME_M))
+    endif
+else
+    $(error Unsupported platform: $(UNAME_S))
+endif
+
+.PHONY: all clean install-dirs curl-dev pcre2 http-parser libgit2 mruby package verify
+
+all: install-dirs curl-dev pcre2 http-parser libgit2 mruby
+
+install-dirs:
+	mkdir -p $(PREFIX)/lib $(PREFIX)/include $(BUILD_DIR)
+
+# Setup stunnel-static-curl dev package from mise
+curl-dev: install-dirs
+	@echo "=== Setting up stunnel-static-curl dev package ==="
+	@echo "Platform: $(UNAME_S) $(UNAME_M)"
+	@echo ""
+	@if [ -n "$(MISE_CURL_PATH)" ] && [ -d "$(MISE_CURL_PATH)/lib" ]; then \
+		echo "✓ Using mise-installed curl dev package from:"; \
+		echo "  $(MISE_CURL_PATH)"; \
+		echo ""; \
+		echo "Copying curl libraries and headers to install directory..."; \
+		cp -r "$(MISE_CURL_PATH)/lib"/* $(PREFIX)/lib/; \
+		cp -r "$(MISE_CURL_PATH)/include"/* $(PREFIX)/include/; \
+	else \
+		echo "✗ mise curl dev package not found!"; \
+		echo ""; \
+		echo "Please install via mise:"; \
+		echo "  mise install"; \
+		echo ""; \
+		echo "Or check .mise.toml configuration"; \
+		exit 1; \
+	fi
+	@echo ""
+	@echo "✓ curl-dev installed successfully"
+	@echo "  Libraries: $(PREFIX)/lib/"
+	@echo "  Headers: $(PREFIX)/include/"
+
+# PCRE2 - regex library for libgit2 (still needed)
+pcre2: install-dirs
+	@echo "=== Building PCRE2 ==="
+	cd deps/pcre2 && \
+		./autogen.sh && \
+		./configure --disable-shared --enable-static --prefix=$(PREFIX) && \
+		$(MAKE) -j$(NPROC) && \
+		$(MAKE) install
+	@echo "✓ PCRE2 installed"
+
+# http-parser - HTTP parsing library for libgit2 (still needed)
+http-parser: install-dirs
+	@echo "=== Building http-parser ==="
+	cd deps/http-parser && \
+		$(MAKE) package && \
+		cp libhttp_parser.a $(PREFIX)/lib/ && \
+		cp http_parser.h $(PREFIX)/include/
+	@echo "✓ http-parser installed"
+
+# libgit2 - recompile using curl-dev dependencies
+libgit2: curl-dev pcre2 http-parser
+	@echo "=== Building libgit2 with curl-dev dependencies ==="
+	mkdir -p $(BUILD_DIR)/libgit2 && cd $(BUILD_DIR)/libgit2 && \
+		cmake ../../deps/libgit2 \
+			-DCMAKE_INSTALL_PREFIX=$(PREFIX) \
+			-DCMAKE_PREFIX_PATH=$(PREFIX) \
+			-DBUILD_SHARED_LIBS=OFF \
+			-DBUILD_TESTS=OFF \
+			-DBUILD_CLI=OFF \
+			-DUSE_SSH=ON \
+			-DOPENSSL_ROOT_DIR=$(PREFIX) \
+			-DOPENSSL_CRYPTO_LIBRARY=$(PREFIX)/lib/libcrypto.a \
+			-DOPENSSL_SSL_LIBRARY=$(PREFIX)/lib/libssl.a \
+			-DZLIB_LIBRARY=$(PREFIX)/lib/libz.a \
+			-DUSE_HTTPS=OpenSSL \
+			-DREGEX_BACKEND=pcre2 \
+			-DUSE_GSSAPI=OFF \
+			-DUSE_NTLMCLIENT=OFF \
+			-DUSE_ICONV=OFF && \
+		$(MAKE) -j$(NPROC) && \
+		$(MAKE) install
+	@echo "✓ libgit2 installed"
+
+# mruby - Ruby VM library (unchanged)
+mruby: install-dirs
+	@echo "=== Building mruby ==="
+	cd deps/mruby && \
+		rake && \
+		mkdir -p $(PREFIX)/mruby/lib $(PREFIX)/mruby/include && \
+		cp -r build/host/lib $(PREFIX)/mruby/ && \
+		cp -r include $(PREFIX)/mruby/
+	@echo "✓ mruby installed"
+
+# Verify all libraries
+verify:
+	@echo "=== Verifying built libraries ==="
+	@echo ""
+	@echo "--- curl libraries ---"
+	@ls -lh $(PREFIX)/lib/libcurl.a 2>/dev/null || echo "  ✗ libcurl.a not found"
+	@ls -lh $(PREFIX)/lib/libssl.a 2>/dev/null || echo "  ✗ libssl.a not found"
+	@ls -lh $(PREFIX)/lib/libcrypto.a 2>/dev/null || echo "  ✗ libcrypto.a not found"
+	@ls -lh $(PREFIX)/lib/libssh2.a 2>/dev/null || echo "  ✗ libssh2.a not found"
+	@ls -lh $(PREFIX)/lib/libz.a 2>/dev/null || echo "  ✗ libz.a not found"
+	@ls -lh $(PREFIX)/lib/libnghttp2.a 2>/dev/null || echo "  ✗ libnghttp2.a not found"
+	@echo ""
+	@echo "--- libgit2 ---"
+	@ls -lh $(PREFIX)/lib/libgit2.a 2>/dev/null || echo "  ✗ libgit2.a not found"
+	@echo ""
+	@echo "--- Architecture check ---"
+	@file $(PREFIX)/lib/libcurl.a 2>/dev/null | head -1 || true
+	@file $(PREFIX)/lib/libgit2.a 2>/dev/null | head -1 || true
+	@echo ""
+	@echo "--- Dependency check (libgit2 should reference curl-dev libs) ---"
+	@nm $(PREFIX)/lib/libgit2.a 2>/dev/null | grep " U " | grep -E "ssh2_|SSL_|inflate|deflate" | head -10 || echo "  No undefined symbols found"
+	@echo ""
+	@echo "--- Summary ---"
+	@echo "Total libraries: $$(find $(PREFIX)/lib -name '*.a' | wc -l)"
+	@echo "Total size: $$(du -sh $(PREFIX)/lib | cut -f1)"
+
+# Package artifacts
+package: verify
+	@echo "=== Packaging artifacts ==="
+	cp build.zig.zon build.zig root.zig $(PREFIX)/
+	tar czf hola-deps-$(UNAME_M)-$(UNAME_S)-curl.tar.gz \
+		-C $(PREFIX) \
+		build.zig.zon build.zig root.zig include lib mruby
+	@echo ""
+	@echo "✓ Package created: hola-deps-$(UNAME_M)-$(UNAME_S)-curl.tar.gz"
+	@ls -lh hola-deps-$(UNAME_M)-$(UNAME_S)-curl.tar.gz
+
+clean:
+	@echo "Cleaning build artifacts..."
+	rm -rf $(BUILD_DIR) $(PREFIX) *.tar.gz deps/curl-dev
+	cd deps/pcre2 && git clean -fdx || true
+	cd deps/http-parser && git clean -fdx || true
+	cd deps/libgit2 && git clean -fdx || true
+	cd deps/mruby && git clean -fdx || true
+	@echo "✓ Clean complete"
+
+# Help target
+help:
+	@echo "hola-deps Makefile (curl branch)"
+	@echo ""
+	@echo "Targets:"
+	@echo "  all          - Build all dependencies (curl-dev, libgit2, mruby)"
+	@echo "  curl-dev     - Download and install stunnel-static-curl dev package"
+	@echo "  pcre2        - Build PCRE2"
+	@echo "  http-parser  - Build http-parser"
+	@echo "  libgit2      - Build libgit2 with curl-dev dependencies"
+	@echo "  mruby        - Build mruby"
+	@echo "  verify       - Verify all built libraries"
+	@echo "  package      - Create distribution tarball"
+	@echo "  clean        - Remove all build artifacts"
+	@echo "  help         - Show this help message"
+	@echo ""
+	@echo "Platform: $(UNAME_S) $(UNAME_M)"
+	@echo "curl package: $(CURL_DEV_PACKAGE)"

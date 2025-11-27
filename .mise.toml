@@ -1,0 +1,6 @@
+[tools."github:stunnel/static-curl"]
+version = "8.17.0-ech"
+
+[tools."github:stunnel/static-curl".platforms]
+linux-x64 = { asset_pattern = "curl-linux-x86_64-dev-8*.tar.xz" }
+macos-arm64 = { asset_pattern = "curl-macos-arm64-dev-8*.tar.xz" }

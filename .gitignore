@@ -15,3 +15,4 @@ install/
 *~
 .vscode/
 .idea/
+.zig-cache
