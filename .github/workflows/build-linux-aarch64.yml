@@ -1,0 +1,168 @@
+name: Build Linux aarch64 Dependencies
+
+on:
+  push:
+    branches: [main, master, curl]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install mise
+        uses: jdx/mise-action@v2
+        with:
+          install: true
+          cache: true
+          experimental: true
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            clang \
+            cmake \
+            pkg-config \
+            ruby \
+            rake \
+            bison \
+            autoconf \
+            automake \
+            libtool
+
+      - name: Setup mise tools
+        run: |
+          mise install
+          mise ls
+
+      - name: Build all dependencies
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          # Determine which Makefile to use based on branch
+          if [ "${{ github.ref_name }}" = "curl" ] || [ -f "Makefile.curl" ]; then
+            echo "Building with Makefile.curl (curl branch)"
+            make -f Makefile.curl -j$(nproc)
+          else
+            echo "Building with default Makefile (master branch)"
+            make -j$(nproc)
+          fi
+
+      - name: Verify binaries
+        run: |
+          if [ -f "Makefile.curl" ]; then
+            make -f Makefile.curl verify
+          else
+            make verify
+          fi
+          # Extract and check object files from static libraries to verify architecture
+          mkdir -p /tmp/verify
+          cd /tmp/verify
+          for lib in $GITHUB_WORKSPACE/install/lib/*.a $GITHUB_WORKSPACE/install/mruby/lib/*.a; do
+            ar x "$lib"
+            file *.o | head -1 | tee -a /tmp/arch-check.log
+            rm -f *.o
+          done
+          cat /tmp/arch-check.log
+          if ! grep -q "aarch64\|ARM aarch64" /tmp/arch-check.log; then
+            echo "Error: Libraries are not aarch64!"
+            exit 1
+          fi
+          echo "✅ All libraries verified as aarch64"
+
+      - name: Extract version from build.zig.zon
+        id: version
+        run: |
+          VERSION=$(grep -E '^\s*\.version\s*=\s*"' build.zig.zon | sed -E 's/.*"(.*)".*/\1/')
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Detected version: $VERSION"
+
+      - name: Package artifacts
+        run: |
+          if [ -f "Makefile.curl" ]; then
+            make -f Makefile.curl package
+            # Rename based on branch/tag
+            if [ "${{ github.ref_name }}" = "curl" ]; then
+              # Nightly build from curl branch
+              mv hola-deps-*-linux-*.tar.gz hola-deps-linux-aarch64-curl.tar.gz
+            elif [ "${{ github.ref_type }}" = "tag" ]; then
+              # Version release
+              mv hola-deps-*-linux-*.tar.gz hola-deps-linux-aarch64-${{ steps.version.outputs.version }}-curl.tar.gz
+            else
+              # Other branches
+              mv hola-deps-*.tar.gz hola-deps-linux-aarch64.tar.gz
+            fi
+          else
+            make package
+            if [ "${{ github.ref_type }}" = "tag" ]; then
+              mv hola-deps-*.tar.gz hola-deps-linux-aarch64-${{ steps.version.outputs.version }}.tar.gz
+            else
+              mv hola-deps-*.tar.gz hola-deps-linux-aarch64.tar.gz
+            fi
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: hola-deps-linux-aarch64
+          path: hola-deps-linux-aarch64*.tar.gz
+          retention-days: 30
+
+      - name: Create version release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: hola-deps-linux-aarch64*.tar.gz
+          draft: false
+          prerelease: false
+          name: Release ${{ steps.version.outputs.version }}
+          body: |
+            ## hola-deps ${{ steps.version.outputs.version }}
+
+            ${{ github.ref_name == 'curl' && '### curl branch' || '### master branch' }}
+
+            Built from commit: ${{ github.sha }}
+
+            ### Included Libraries
+            - libgit2
+            - mruby
+            ${{ github.ref_name == 'curl' && '- libcurl (with HTTP/2, HTTP/3, AWS SigV4 support)' || '' }}
+            ${{ github.ref_name == 'curl' && '- OpenSSL, libssh2, zlib (shared with libcurl)' || '- OpenSSL, libssh2, zlib' }}
+
+            ### Platform Support
+            - macOS ARM64 (Apple Silicon)
+            - Linux x86_64
+            - Linux aarch64
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update Nightly Release
+        if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/curl'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref == 'refs/heads/curl' && 'nightly-curl' || 'nightly' }}
+          name: ${{ github.ref == 'refs/heads/curl' && 'Nightly Build (curl)' || 'Nightly Build' }}
+          body: |
+            Latest build from ${{ github.ref_name }} branch
+
+            Commit: ${{ github.sha }}
+            Build time: ${{ github.event.head_commit.timestamp }}
+
+            ⚠️ This is a nightly build and may be unstable.
+          prerelease: true
+          files: hola-deps-linux-aarch64*.tar.gz
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

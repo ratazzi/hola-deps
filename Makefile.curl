@@ -24,6 +24,9 @@ else ifeq ($(UNAME_S),linux)
     ifeq ($(UNAME_M),x86_64)
         CURL_DEV_PACKAGE := curl-linux-x86_64-dev-$(CURL_VERSION).tar.xz
         CURL_DEV_URL := https://github.com/stunnel/static-curl/releases/download/$(CURL_VERSION)/$(CURL_DEV_PACKAGE)
+    else ifeq ($(UNAME_M),aarch64)
+        CURL_DEV_PACKAGE := curl-linux-aarch64-dev-$(CURL_VERSION).tar.xz
+        CURL_DEV_URL := https://github.com/stunnel/static-curl/releases/download/$(CURL_VERSION)/$(CURL_DEV_PACKAGE)
     else
         $(error Unsupported Linux architecture: $(UNAME_M))
     endif
