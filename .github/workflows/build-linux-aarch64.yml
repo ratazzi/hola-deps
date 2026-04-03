@@ -40,7 +40,8 @@ jobs:
             bison \
             autoconf \
             automake \
-            libtool
+            libtool \
+            musl-tools
 
       - name: Setup mise tools
         run: |
@@ -49,8 +50,7 @@ jobs:
 
       - name: Build all dependencies
         env:
-          CC: clang
-          CXX: clang++
+          CC: musl-gcc
         run: |
           # Determine which Makefile to use based on branch
           if [ "${{ github.ref_name }}" = "curl" ] || [ -f "Makefile.curl" ]; then
