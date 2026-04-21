@@ -114,14 +114,15 @@ libgit2: curl-dev pcre2 http-parser
 		$(MAKE) install
 	@echo "✓ libgit2 installed"
 
-# mruby - Ruby VM library (unchanged)
+# mruby - Ruby VM library
 mruby: install-dirs
 	@echo "=== Building mruby ==="
 	cd deps/mruby && \
 		rake && \
 		mkdir -p $(PREFIX)/mruby/lib $(PREFIX)/mruby/include && \
 		cp -r build/host/lib $(PREFIX)/mruby/ && \
-		cp -r include $(PREFIX)/mruby/
+		cp -r include/. $(PREFIX)/mruby/include/ && \
+		cp -r build/host/include/. $(PREFIX)/mruby/include/
 	@echo "✓ mruby installed"
 
 # Verify all libraries
