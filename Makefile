@@ -78,10 +78,11 @@ libgit2: openssl libssh2 zlib pcre2 http-parser
 		$(MAKE) install
 
 # mruby - Ruby VM library
+# Use build_config/hola.rb to enable mruby-strftime (not in the upstream default gembox).
 mruby: install-dirs
 	@echo "Building mruby..."
 	cd deps/mruby && \
-		rake && \
+		MRUBY_CONFIG=$(PWD)/build_config/hola.rb rake && \
 		mkdir -p $(PREFIX)/mruby/lib $(PREFIX)/mruby/include && \
 		cp -r build/host/lib $(PREFIX)/mruby/ && \
 		cp -r include/. $(PREFIX)/mruby/include/ && \
