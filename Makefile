@@ -84,7 +84,8 @@ mruby: install-dirs
 		rake && \
 		mkdir -p $(PREFIX)/mruby/lib $(PREFIX)/mruby/include && \
 		cp -r build/host/lib $(PREFIX)/mruby/ && \
-		cp -r include $(PREFIX)/mruby/
+		cp -r include/. $(PREFIX)/mruby/include/ && \
+		cp -r build/host/include/. $(PREFIX)/mruby/include/
 
 # Verify all libraries are built for the correct architecture
 verify:
